@@ -1,7 +1,7 @@
-using CSV
-using SQLite
-using ZipFile
-using Requests
+import CSV
+import SQLite
+import InfoZIP
+import Glob
 
 # Schema for reading csv tables
 const locale_schema = [Int, String, String, String, String, String, String, String, String, String, String, Int, String, Int]
@@ -30,35 +30,35 @@ function tune!(db::SQLite.DB)
 end
 
 function main()
-    download(URL, "geolite2.zip")
-    download(MD5, "geolite2.md5")
+    const zipfile = "geolite2.zip"
+    const md5 = "geolite2.md5"
+
+    download(URL, zipfile)
+    download(MD5, md5)
+    InfoZIP.unzip(zipfile)
 
     db = SQLite.DB("geolite2.db")
     tune!(db)
 
-    r = try
-        Requests.get(URL)
-    catch
-        error("Failed to download Geolite database, check network connectivity")
-    end
-
-    archive = ZipFile.Reader("geolite2.zip")
-    dict = Dict(split(value.name, '/')[end] => value for value in archive.files)
+    files = Glob.glob("GeoLite2-City*/*.csv")
+    dict = Dict(split(path, '/')[end] => path for path in files)
 
     info("Inserting IPv4 Block data...")
-    @time csvtotable(dict["GeoLite2-City-Blocks-IPv4.csv"], db, "blocks_ipv4", block_schema)
+    csvtotable(dict["GeoLite2-City-Blocks-IPv4.csv"], db, "blocks_ipv4", block_schema)
 
-    # info("Inserting IPv6 Block data...")
-    # csvtotable(dict["GeoLite2-City-Blocks-IPv6.csv"], db, "blocks_ipv6", block_schema)
-    #
-    # for locale in ["en", "de", "es", "fr", "ja", "pt-BR", "ru", "zh-CN"]
-    #     info("Inserting locale $locale...")
-    #     table_safe_locale = replace(locale, '-', '_')
-    #     table = "locations_$table_safe_locale"
-    #     csvtotable(dict["GeoLite2-City-Locations-$locale.csv"], db, table, locale_schema)
-    # end
+    info("Inserting IPv6 Block data...")
+    csvtotable(dict["GeoLite2-City-Blocks-IPv6.csv"], db, "blocks_ipv6", block_schema)
 
+    for locale in ["en", "de", "es", "fr", "ja", "pt-BR", "ru", "zh-CN"]
+        info("Inserting locale $locale...")
+        table_safe_locale = replace(locale, '-', '_')
+        table = "locations_$table_safe_locale"
+        csvtotable(dict["GeoLite2-City-Locations-$locale.csv"], db, table, locale_schema)
+    end
 
+    dir = Glob.glob("GeoLite2-City*")[1]
+    rm(dir, force=true, recursive=true)
+    rm(zipfile)
 end
 
 main()
